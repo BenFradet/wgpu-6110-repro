@@ -1143,6 +1143,7 @@ dependencies = [
 name = "wgpu-6110-repro"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "env_logger",
  "futures",
  "wgpu",
