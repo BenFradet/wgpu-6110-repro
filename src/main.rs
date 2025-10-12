@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 
+use wgpu::util::DeviceExt;
 use wgpu::{
-    Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance, Limits, MemoryHints, Queue,
-    ShaderModule, ShaderModuleDescriptor, ShaderSource, Trace,
+    util::BufferInitDescriptor, Buffer, BufferUsages, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance, Limits, MemoryHints, Queue, ShaderModule, ShaderModuleDescriptor, ShaderSource, Trace
 };
 
 const SHADER_SOURCE: &'static str = include_str!("shader.wgsl");
@@ -11,6 +11,15 @@ fn main() {
     env_logger::init();
     let (device, queue) = get_device_and_queue();
     let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
+    let input_buffer = create_input_buffer(&device, &[1.; 32]);
+}
+
+fn create_input_buffer(device: &Device, data: &[f32]) -> Buffer {
+    device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("input"),
+        contents: bytemuck::cast_slice(data),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+    })
 }
 
 fn create_shader_module(device: &Device, label: &str, shader_source: &str) -> ShaderModule {
