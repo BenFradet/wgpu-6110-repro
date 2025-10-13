@@ -1,8 +1,11 @@
 use std::borrow::Cow;
 
 use wgpu::util::DeviceExt;
+use wgpu::wgt::BufferDescriptor;
 use wgpu::{
-    util::BufferInitDescriptor, Buffer, BufferUsages, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance, Limits, MemoryHints, Queue, ShaderModule, ShaderModuleDescriptor, ShaderSource, Trace
+    Buffer, BufferUsages, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance,
+    Limits, MemoryHints, Queue, ShaderModule, ShaderModuleDescriptor, ShaderSource, Trace,
+    util::BufferInitDescriptor,
 };
 
 const SHADER_SOURCE: &'static str = include_str!("shader.wgsl");
@@ -12,6 +15,17 @@ fn main() {
     let (device, queue) = get_device_and_queue();
     let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
     let input_buffer = create_input_buffer(&device, &[1.; 32]);
+    let size = input_buffer.size();
+    let output_buffer = create_output_buffer(
+        &device,
+        size,
+        BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+    );
+    let download_buffer = create_output_buffer(
+        &device,
+        size,
+        BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+    );
 }
 
 fn create_input_buffer(device: &Device, data: &[f32]) -> Buffer {
@@ -19,6 +33,15 @@ fn create_input_buffer(device: &Device, data: &[f32]) -> Buffer {
         label: Some("input"),
         contents: bytemuck::cast_slice(data),
         usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+    })
+}
+
+fn create_output_buffer(device: &Device, size: u64, usage: BufferUsages) -> Buffer {
+    device.create_buffer(&BufferDescriptor {
+        label: Some("output"),
+        size,
+        usage,
+        mapped_at_creation: false,
     })
 }
 
