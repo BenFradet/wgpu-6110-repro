@@ -1,7 +1,12 @@
 use std::borrow::Cow;
+use std::num::NonZeroU64;
 
 use wgpu::util::DeviceExt;
 use wgpu::wgt::BufferDescriptor;
+use wgpu::{
+    BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
+    BufferBindingType, ShaderStages,
+};
 use wgpu::{
     Buffer, BufferUsages, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance,
     Limits, MemoryHints, Queue, ShaderModule, ShaderModuleDescriptor, ShaderSource, Trace,
@@ -26,6 +31,35 @@ fn main() {
         size,
         BufferUsages::MAP_READ | BufferUsages::COPY_DST,
     );
+    let bind_group_layout = create_bind_group_layout(&device);
+}
+
+fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: Some("bind group layout"),
+        entries: &[
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(NonZeroU64::new(4).unwrap()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(NonZeroU64::new(4).unwrap()),
+                },
+                count: None,
+            },
+        ],
+    })
 }
 
 fn create_input_buffer(device: &Device, data: &[f32]) -> Buffer {
