@@ -5,7 +5,9 @@ use wgpu::util::DeviceExt;
 use wgpu::wgt::BufferDescriptor;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, BufferBindingType, ShaderStages,
+    BindGroupLayoutEntry, BindingType, BufferBindingType, ComputePipeline,
+    ComputePipelineDescriptor, PipelineCompilationOptions, PipelineLayout,
+    PipelineLayoutDescriptor, ShaderStages,
 };
 use wgpu::{
     Buffer, BufferUsages, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance,
@@ -18,7 +20,9 @@ const SHADER_SOURCE: &'static str = include_str!("shader.wgsl");
 fn main() {
     env_logger::init();
     let (device, queue) = get_device_and_queue();
+
     let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
+
     let input_buffer = create_input_buffer(&device, &[1.; 32]);
     let size = input_buffer.size();
     let output_buffer = create_output_buffer(
@@ -31,8 +35,35 @@ fn main() {
         size,
         BufferUsages::MAP_READ | BufferUsages::COPY_DST,
     );
+
     let bind_group_layout = create_bind_group_layout(&device);
     let bind_group = create_bind_group(&device, &bind_group_layout, &input_buffer, &output_buffer);
+
+    let pipeline_layout = create_pipeline_layout(&device, &bind_group_layout);
+    let pipeline = create_pipeline(&device, &pipeline_layout, &shader_module);
+}
+
+fn create_pipeline(
+    device: &Device,
+    layout: &PipelineLayout,
+    shader_module: &ShaderModule,
+) -> ComputePipeline {
+    device.create_compute_pipeline(&ComputePipelineDescriptor {
+        label: Some("pipeline"),
+        layout: Some(layout),
+        module: shader_module,
+        entry_point: Some("call"),
+        compilation_options: PipelineCompilationOptions::default(),
+        cache: None,
+    })
+}
+
+fn create_pipeline_layout(device: &Device, bind_group_layout: &BindGroupLayout) -> PipelineLayout {
+    device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        label: Some("pipeline layout"),
+        bind_group_layouts: &[&bind_group_layout],
+        push_constant_ranges: &[],
+    })
 }
 
 fn create_bind_group(
