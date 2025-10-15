@@ -4,8 +4,8 @@ use std::num::NonZeroU64;
 use wgpu::util::DeviceExt;
 use wgpu::wgt::BufferDescriptor;
 use wgpu::{
-    BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
-    BufferBindingType, ShaderStages,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, BufferBindingType, ShaderStages,
 };
 use wgpu::{
     Buffer, BufferUsages, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance,
@@ -32,6 +32,29 @@ fn main() {
         BufferUsages::MAP_READ | BufferUsages::COPY_DST,
     );
     let bind_group_layout = create_bind_group_layout(&device);
+    let bind_group = create_bind_group(&device, &bind_group_layout, &input_buffer, &output_buffer);
+}
+
+fn create_bind_group(
+    device: &Device,
+    layout: &BindGroupLayout,
+    input: &Buffer,
+    output: &Buffer,
+) -> BindGroup {
+    device.create_bind_group(&BindGroupDescriptor {
+        label: Some("bind group"),
+        layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: input.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: output.as_entire_binding(),
+            },
+        ],
+    })
 }
 
 fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
