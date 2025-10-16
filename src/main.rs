@@ -15,13 +15,11 @@ use wgpu::{
     util::BufferInitDescriptor,
 };
 
-const SHADER_SOURCE: &'static str = include_str!("shader.wgsl");
+const SHADER_SOURCE: &str = include_str!("shader.wgsl");
 
 fn main() {
     env_logger::init();
     let (device, queue) = get_device_and_queue();
-
-    let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
 
     let data = [1.; 32];
     let input_buffer = create_input_buffer(&device, &data);
@@ -40,24 +38,22 @@ fn main() {
     let bind_group_layout = create_bind_group_layout(&device);
     let bind_group = create_bind_group(&device, &bind_group_layout, &input_buffer, &output_buffer);
 
+    let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
     let pipeline_layout = create_pipeline_layout(&device, &bind_group_layout);
     let pipeline = create_pipeline(&device, &pipeline_layout, &shader_module);
 
     let workgroup_count = data.len().div_ceil(64) as u32;
-    let command_buffer = create_command_buffer(
-        &device,
-        &pipeline,
-        &bind_group,
-        workgroup_count,
-        &output_buffer,
-        &download_buffer,
-    );
+    let compute_command_buffer =
+        create_compute_command_buffer(&device, &pipeline, &bind_group, workgroup_count);
 
-    queue.submit([command_buffer]);
+    queue.submit([compute_command_buffer]);
+    device.poll(PollType::wait_indefinitely()).unwrap();
 
+    let download_command_buffer =
+        create_download_command_buffer(&device, &output_buffer, &download_buffer);
+    queue.submit([download_command_buffer]);
     let buffer_slice = download_buffer.slice(..);
     buffer_slice.map_async(MapMode::Read, |_| {});
-
     device.poll(PollType::wait_indefinitely()).unwrap();
 
     let data = buffer_slice.get_mapped_range();
@@ -66,13 +62,11 @@ fn main() {
     println!("result: {result:?}");
 }
 
-fn create_command_buffer(
+fn create_compute_command_buffer(
     device: &Device,
     pipeline: &ComputePipeline,
     bind_group: &BindGroup,
     workgroup_count: u32,
-    output_buffer: &Buffer,
-    download_buffer: &Buffer,
 ) -> CommandBuffer {
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
         label: Some("encoder"),
@@ -81,11 +75,21 @@ fn create_command_buffer(
         label: Some("compute pass"),
         timestamp_writes: None,
     });
-    compute_pass.set_pipeline(&pipeline);
+    compute_pass.set_pipeline(pipeline);
     compute_pass.set_bind_group(0, bind_group, &[]);
     compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
     drop(compute_pass);
-    // TODO: split in multiple command encoders
+    encoder.finish()
+}
+
+fn create_download_command_buffer(
+    device: &Device,
+    output_buffer: &Buffer,
+    download_buffer: &Buffer,
+) -> CommandBuffer {
+    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("encoder"),
+    });
     encoder.copy_buffer_to_buffer(output_buffer, 0, download_buffer, 0, output_buffer.size());
     encoder.finish()
 }
@@ -108,7 +112,7 @@ fn create_pipeline(
 fn create_pipeline_layout(device: &Device, bind_group_layout: &BindGroupLayout) -> PipelineLayout {
     device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("pipeline layout"),
-        bind_group_layouts: &[&bind_group_layout],
+        bind_group_layouts: &[bind_group_layout],
         push_constant_ranges: &[],
     })
 }
@@ -183,7 +187,7 @@ fn create_output_buffer(device: &Device, size: u64, usage: BufferUsages) -> Buff
 fn create_shader_module(device: &Device, label: &str, shader_source: &str) -> ShaderModule {
     device.create_shader_module(ShaderModuleDescriptor {
         label: Some(label),
-        source: ShaderSource::Wgsl(Cow::Borrowed(&shader_source)),
+        source: ShaderSource::Wgsl(Cow::Borrowed(shader_source)),
     })
 }
 
@@ -203,7 +207,7 @@ async fn get_device_and_queue_async() -> (Device, Queue) {
     {
         panic!("Adapter does not support compute shaders");
     }
-    let device_and_queue = adapter
+    adapter
         .request_device(&DeviceDescriptor {
             label: None,
             required_features: Features::empty(),
@@ -213,8 +217,7 @@ async fn get_device_and_queue_async() -> (Device, Queue) {
             experimental_features: ExperimentalFeatures::disabled(),
         })
         .await
-        .unwrap();
-    device_and_queue
+        .unwrap()
 }
 
 fn get_device_and_queue() -> (Device, Queue) {
