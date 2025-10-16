@@ -2,12 +2,9 @@ use std::borrow::Cow;
 use std::num::NonZeroU64;
 
 use wgpu::util::DeviceExt;
-use wgpu::wgt::BufferDescriptor;
+use wgpu::wgt::{BufferDescriptor, CommandEncoderDescriptor};
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, BufferBindingType, ComputePipeline,
-    ComputePipelineDescriptor, PipelineCompilationOptions, PipelineLayout,
-    PipelineLayoutDescriptor, ShaderStages,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType, CommandBuffer, ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor, ShaderStages
 };
 use wgpu::{
     Buffer, BufferUsages, Device, DeviceDescriptor, ExperimentalFeatures, Features, Instance,
@@ -23,7 +20,8 @@ fn main() {
 
     let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
 
-    let input_buffer = create_input_buffer(&device, &[1.; 32]);
+    let data = [1.; 32];
+    let input_buffer = create_input_buffer(&device, &data);
     let size = input_buffer.size();
     let output_buffer = create_output_buffer(
         &device,
@@ -41,6 +39,31 @@ fn main() {
 
     let pipeline_layout = create_pipeline_layout(&device, &bind_group_layout);
     let pipeline = create_pipeline(&device, &pipeline_layout, &shader_module);
+
+    let workgroup_count = data.len().div_ceil(64) as u32;
+    let command_buffer = create_command_buffer(&device, &pipeline, &bind_group, workgroup_count, &output_buffer, &download_buffer);
+}
+
+fn create_command_buffer(
+    device: &Device,
+    pipeline: &ComputePipeline,
+    bind_group: &BindGroup,
+    workgroup_count: u32,
+    output_buffer: &Buffer,
+    download_buffer: &Buffer,
+) -> CommandBuffer {
+    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor { label: Some("encoder") });
+    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+        label: Some("compute pass"),
+        timestamp_writes: None,
+    });
+    compute_pass.set_pipeline(&pipeline);
+    compute_pass.set_bind_group(0, bind_group, &[]);
+    compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+    drop(compute_pass);
+    // TODO: split in multiple command encoders
+    encoder.copy_buffer_to_buffer(output_buffer, 0, download_buffer, 0, output_buffer.size());
+    encoder.finish()
 }
 
 fn create_pipeline(
