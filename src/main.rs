@@ -18,6 +18,10 @@ use wgpu::{
 const SHADER_SOURCE: &str = include_str!("shader.wgsl");
 
 fn main() {
+    hanging();
+}
+
+fn hanging() {
     env_logger::init();
     let (device, queue) = get_device_and_queue();
 
@@ -29,18 +33,12 @@ fn main() {
         size,
         BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     );
-    let download_buffer = create_output_buffer(
-        &device,
-        size,
-        BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-    );
-
-    let bind_group_layout = create_bind_group_layout(&device);
-    let bind_group = create_bind_group(&device, &bind_group_layout, &input_buffer, &output_buffer);
 
     let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
-    let pipeline_layout = create_pipeline_layout(&device, &bind_group_layout);
-    let pipeline = create_pipeline(&device, &pipeline_layout, &shader_module);
+    // hangs
+    let pipeline = create_pipeline_without_layout(&device, &shader_module);
+
+    let bind_group = create_bind_group_with_pipeline(&device, &pipeline, &input_buffer, &output_buffer);
 
     let workgroup_count = data.len().div_ceil(64) as u32;
     let compute_command_buffer =
@@ -49,6 +47,11 @@ fn main() {
     queue.submit([compute_command_buffer]);
     device.poll(PollType::wait_indefinitely()).unwrap();
 
+    let download_buffer = create_output_buffer(
+        &device,
+        size,
+        BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+    );
     let download_command_buffer =
         create_download_command_buffer(&device, &output_buffer, &download_buffer);
     queue.submit([download_command_buffer]);
@@ -60,6 +63,54 @@ fn main() {
     let result: &[f32] = bytemuck::cast_slice(&data);
 
     println!("result: {result:?}");
+}
+
+fn failing() {
+    env_logger::init();
+    let (device, queue) = get_device_and_queue();
+
+    let data = [1.; 32];
+    let input_buffer = create_input_buffer(&device, &data);
+    let size = input_buffer.size();
+    let output_buffer = create_output_buffer(
+        &device,
+        size,
+        BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+    );
+
+    // fails successfully here:
+    // Too many bindings of type StorageBuffers in Stage ShaderStages(COMPUTE), limit is 4, count was 5.
+    // Check the limit `max_storage_buffers_per_shader_stage` passed to `Adapter::request_device`
+    let bind_group_layout = create_bind_group_layout(&device);
+    //let bind_group = create_bind_group(&device, &bind_group_layout, &input_buffer, &output_buffer);
+
+    //let shader_module = create_shader_module(&device, "test", SHADER_SOURCE);
+    //let pipeline_layout = create_pipeline_layout(&device, &bind_group_layout);
+    //let pipeline = create_pipeline(&device, &pipeline_layout, &shader_module);
+
+    //let workgroup_count = data.len().div_ceil(64) as u32;
+    //let compute_command_buffer =
+    //    create_compute_command_buffer(&device, &pipeline, &bind_group, workgroup_count);
+
+    //queue.submit([compute_command_buffer]);
+    //device.poll(PollType::wait_indefinitely()).unwrap();
+
+    //let download_buffer = create_output_buffer(
+    //    &device,
+    //    size,
+    //    BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+    //);
+    //let download_command_buffer =
+    //    create_download_command_buffer(&device, &output_buffer, &download_buffer);
+    //queue.submit([download_command_buffer]);
+    //let buffer_slice = download_buffer.slice(..);
+    //buffer_slice.map_async(MapMode::Read, |_| {});
+    //device.poll(PollType::wait_indefinitely()).unwrap();
+
+    //let data = buffer_slice.get_mapped_range();
+    //let result: &[f32] = bytemuck::cast_slice(&data);
+
+    //println!("result: {result:?}");
 }
 
 fn create_compute_command_buffer(
@@ -92,6 +143,20 @@ fn create_download_command_buffer(
     });
     encoder.copy_buffer_to_buffer(output_buffer, 0, download_buffer, 0, output_buffer.size());
     encoder.finish()
+}
+
+fn create_pipeline_without_layout(
+    device: &Device,
+    shader_module: &ShaderModule,
+) -> ComputePipeline {
+    device.create_compute_pipeline(&ComputePipelineDescriptor {
+        label: Some("pipeline"),
+        layout: None,
+        module: shader_module,
+        entry_point: Some("call"),
+        compilation_options: PipelineCompilationOptions::default(),
+        cache: None,
+    })
 }
 
 fn create_pipeline(
@@ -139,6 +204,29 @@ fn create_bind_group(
     })
 }
 
+fn create_bind_group_with_pipeline(
+    device: &Device,
+    pipeline: &ComputePipeline,
+    input: &Buffer,
+    output: &Buffer,
+) -> BindGroup {
+    let layout = pipeline.get_bind_group_layout(0);
+    device.create_bind_group(&BindGroupDescriptor {
+        label: Some("bind group"),
+        layout: &layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: input.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: output.as_entire_binding(),
+            },
+        ],
+    })
+}
+
 fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("bind group layout"),
@@ -158,6 +246,36 @@ fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(NonZeroU64::new(4).unwrap()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(NonZeroU64::new(4).unwrap()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(NonZeroU64::new(4).unwrap()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
                     min_binding_size: Some(NonZeroU64::new(4).unwrap()),
                 },
@@ -195,11 +313,17 @@ async fn get_device_and_queue_async() -> (Device, Queue) {
     let instance = Instance::default();
     let adapter = wgpu::util::initialize_adapter_from_env(&instance, None)
         .expect("No suitable GPU adapters found on the system");
+
     let info = adapter.get_info();
     println!(
         "Using {:#?} {} with {:#?} backend",
         info.device_type, info.name, info.backend
     );
+
+    let limits = adapter.limits();
+    // prints max_storage_buffers_per_shader_stage: 201326592
+    println!("Limits: {limits:#?}");
+
     let downlevel_capabilities = adapter.get_downlevel_capabilities();
     if !downlevel_capabilities
         .flags
